@@ -11,7 +11,7 @@ $$ LANGUAGE plpgsql;
 
 
 -- Procedure to register a user
-CREATE OR REPLACE PROCEDURE register_user(uname VARCHAR, passw VARCHAR, u_name VARCHAR, u_phone VARCHAR, u_email VARCHAR, u_role INT)
+CREATE OR REPLACE PROCEDURE register_user(uname VARCHAR, passw VARCHAR, u_phone VARCHAR, u_email VARCHAR, u_role INT)
 LANGUAGE plpgsql AS $$
 BEGIN
     IF username_exists(uname) THEN
