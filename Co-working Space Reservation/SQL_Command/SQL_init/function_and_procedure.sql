@@ -9,7 +9,6 @@ BEGIN
     RETURN user_count > 0;
 END;
 $$ LANGUAGE plpgsql;
-
 --Approve
 -- Procedure to register a user
 CREATE OR REPLACE PROCEDURE register_user(uname VARCHAR, passw VARCHAR, u_phone VARCHAR, u_email VARCHAR, u_role INT)
@@ -24,6 +23,7 @@ BEGIN
 END;
 $$;
 
+
 --Approve
 -- Procedure for user login
 CREATE OR REPLACE PROCEDURE user_login(uname VARCHAR, passw VARCHAR)
@@ -31,14 +31,34 @@ LANGUAGE plpgsql AS $$
 DECLARE
     found_user_id INT;
 BEGIN
-    SELECT User_ID INTO found_user_id FROM "REG_USER" WHERE Name = uname AND Password = passw;  -- 'Name' column in REG_USER table
+    SELECT User_ID INTO found_user_id FROM "REG_USER" WHERE Name = uname AND Password = passw;
     IF FOUND THEN
-        INSERT INTO log (type, date_time, user_id) VALUES ('login', CURRENT_TIMESTAMP, found_user_id);  -- Log the login
+        -- Log the login action
+        INSERT INTO "LOG" (Log_Type, User_ID, Action_ID, Table_Name, Timestamp, IP_Address)
+        VALUES ('login', found_user_id, NULL, 'REG_USER', CURRENT_TIMESTAMP, inet_client_addr());
     ELSE
         RAISE EXCEPTION 'Invalid username or password.';
     END IF;
 END;
 $$;
+
+-- Procedure for user logout
+CREATE OR REPLACE PROCEDURE user_logout(uname VARCHAR)
+LANGUAGE plpgsql AS $$
+DECLARE
+    found_user_id INT;
+BEGIN
+    SELECT User_ID INTO found_user_id FROM "REG_USER" WHERE Name = uname;
+    IF FOUND THEN
+        -- Log the logout action
+        INSERT INTO "LOG" (Log_Type, User_ID, Action_ID, Table_Name, Timestamp, IP_Address)
+        VALUES ('logout', found_user_id, NULL, 'REG_USER', CURRENT_TIMESTAMP, inet_client_addr());
+    ELSE
+        RAISE EXCEPTION 'Invalid username.';
+    END IF;
+END;
+$$;
+
 
 --Approve
 -- Procedure for user logout
@@ -57,45 +77,8 @@ END;
 $$;
 
 
---Don't have time overlap checking
--- CREATE OR REPLACE FUNCTION reserve_room(
---     p_user_id INT,
---     p_room_id INT,
---     p_start_time TIMESTAMP,
---     p_end_time TIMESTAMP
--- ) RETURNS VOID AS $$
--- DECLARE
---     v_reserved_count INT;
---     v_room_status VARCHAR;
--- BEGIN
---     -- Check if user has already reserved 3 rooms
---     SELECT COUNT(*) INTO v_reserved_count
---     FROM "RESERVATION"
---     WHERE User_ID = p_user_id;
 
---     IF v_reserved_count >= 3 THEN
---         RAISE EXCEPTION 'User cannot reserve more than 3 rooms';
---     END IF;
 
---     -- Check if the room is available (no overlapping reservations)
---     SELECT Status INTO v_room_status
---     FROM "ROOM"
---     WHERE Room_ID = p_room_id;
-
---     IF v_room_status = 'Booked' THEN
---         RAISE EXCEPTION 'Room is already booked';
---     END IF;
-
---     -- Insert the reservation
---     INSERT INTO "RESERVATION" (User_ID, Room_ID, Start_Time, End_Time)
---     VALUES (p_user_id, p_room_id, p_start_time, p_end_time);
-
---     -- Update the room status to "Booked"
---     UPDATE "ROOM"
---     SET Status = 'Booked'
---     WHERE Room_ID = p_room_id;
--- END;
--- $$ LANGUAGE plpgsql;
 
 --Approve
 CREATE OR REPLACE FUNCTION view_user_reservations(
@@ -116,20 +99,38 @@ CREATE OR REPLACE FUNCTION edit_user_reservation(
     p_start_time TIMESTAMP,
     p_end_time TIMESTAMP
 ) RETURNS VOID AS $$
+DECLARE
+    old_start_time TIMESTAMP;
+    old_end_time TIMESTAMP;
+    v_room_name VARCHAR(255);
 BEGIN
-    -- Update the reservation with the new times
+    -- ดึงข้อมูลเก่าของการจอง
+    SELECT Start_Time, End_Time INTO old_start_time, old_end_time 
+    FROM "RESERVATION" WHERE Reservation_ID = p_reservation_id;
+
+    -- ตรวจสอบว่าไม่พบการจอง
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Reservation ID % not found', p_reservation_id;
+    END IF;
+
+    -- แก้ไขการจอง
     UPDATE "RESERVATION"
     SET Start_Time = p_start_time, End_Time = p_end_time
     WHERE Reservation_ID = p_reservation_id;
 
-    -- Optionally, you can check if the update affected any rows
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Reservation ID % not found', p_reservation_id;
-    END IF;
+    -- ดึงชื่อห้อง
+    SELECT Name INTO v_room_name FROM "ROOM" WHERE Room_ID = (SELECT Room_ID FROM "RESERVATION" WHERE Reservation_ID = p_reservation_id);
+
+    -- บันทึกการแก้ไขลงใน log
+    INSERT INTO "LOG" (Log_Type, User_ID, Action_ID, Table_Name, Old_Value, New_Value, Timestamp, IP_Address)
+    VALUES ('reservation_updated', NULL, p_reservation_id, 'RESERVATION', 
+            CONCAT('Start: ', old_start_time, ', End: ', old_end_time), 
+            CONCAT('Start: ', p_start_time, ', End: ', p_end_time), CURRENT_TIMESTAMP, inet_client_addr());
 END;
 $$ LANGUAGE plpgsql;
 
 
+--Approve
 CREATE OR REPLACE FUNCTION delete_user_reservation(
     p_reservation_id INT
 ) RETURNS VOID AS $$
@@ -203,6 +204,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+
+--Approve
 CREATE OR REPLACE FUNCTION delete_admin_reservation(
     p_admin_id INT,
     p_reservation_id INT
@@ -258,11 +261,10 @@ CREATE OR REPLACE PROCEDURE user_reserve_room(
 DECLARE
     room_available BOOLEAN;
     reservation_count INT;
+    room_name VARCHAR(255);
 BEGIN
-    
     -- ตรวจสอบว่าผู้ใช้มีการจองมากเกินไปหรือไม่ (จำกัดที่ 3 ครั้ง)
-    SELECT COUNT(*)
-    INTO reservation_count
+    SELECT COUNT(*) INTO reservation_count
     FROM "RESERVATION"
     WHERE User_ID = _user_id;
 
@@ -286,6 +288,14 @@ BEGIN
     UPDATE "ROOM"
     SET Status = 'Booked'
     WHERE Room_ID = _room_id;
+
+    -- ดึงชื่อห้องสำหรับบันทึกใน log
+    SELECT Name INTO room_name FROM "ROOM" WHERE Room_ID = _room_id;
+
+    -- บันทึกการจองลงใน log
+    INSERT INTO "LOG" (Log_Type, User_ID, Action_ID, Table_Name, Old_Value, New_Value, Timestamp, IP_Address)
+    VALUES ('reservation_created', _user_id, NULL, 'RESERVATION', NULL, 
+            CONCAT('Room: ', room_name, ', Start: ', _start_time, ', End: ', _end_time), CURRENT_TIMESTAMP, inet_client_addr());
 
     -- แจ้งเตือนว่าการจองสำเร็จ
     RAISE NOTICE 'Reservation made successfully for user ID %, room ID %, from % to %', _user_id, _room_id, _start_time, _end_time;
