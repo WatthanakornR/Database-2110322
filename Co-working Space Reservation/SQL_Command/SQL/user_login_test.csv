@@ -1,0 +1,2 @@
+"log_id","log_type","user_id","action_id","table_name","old_value","new_value","timestamp","ip_address"
+2409,"login",3,NULL,"REG_USER",NULL,NULL,"2025-02-02 11:31:46.855086","172.19.0.3/32"

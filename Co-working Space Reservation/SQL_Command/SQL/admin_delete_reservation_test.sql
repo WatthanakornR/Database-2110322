@@ -1,0 +1,1 @@
+DELETE FROM "RESERVATION" WHERE Reservation_ID = 101 ;

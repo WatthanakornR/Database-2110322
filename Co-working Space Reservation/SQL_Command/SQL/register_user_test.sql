@@ -1,0 +1,1 @@
+CALL register_user('Yaoming', 'passwod2', '0999998899', 'yao@example.com', 2);
