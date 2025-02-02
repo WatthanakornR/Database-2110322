@@ -11,116 +11,56 @@ CREATE TABLE IF NOT EXISTS "LOG" (
 );
 
 -- Trigger user_login
-CREATE OR REPLACE FUNCTION log_user_login()
-RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION log_user_login() RETURNS TRIGGER AS $$
 BEGIN
+    -- ป้องกันไม่ให้ทำงานซ้ำเมื่อเป็นการแทรกข้อมูลลงใน LOG
+    IF TG_TABLE_NAME = 'log' THEN
+        RETURN NULL;
+    END IF;
+
     INSERT INTO "LOG" (Log_Type, User_ID, Timestamp, IP_Address)
     VALUES ('login', NEW.User_ID, CURRENT_TIMESTAMP, inet_client_addr());
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER user_login_trigger
-AFTER INSERT ON "LOG"
-FOR EACH ROW
-WHEN (NEW.Log_Type = 'login')
-EXECUTE FUNCTION log_user_login();
 
-
---Reservation Actions
--- Trigger เมื่อการจองห้องถูกสร้าง
-CREATE OR REPLACE FUNCTION log_reservation_creation()
-RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION update_room_status_on_reservation_change() 
+RETURNS TRIGGER 
+LANGUAGE plpgsql
+AS $$
 BEGIN
-    INSERT INTO "LOG" (Log_Type, User_ID, Action_ID, Table_Name, Timestamp)
-    VALUES ('reservation_created', NEW.User_ID, NEW.Reservation_ID, 'RESERVATION', CURRENT_TIMESTAMP);
+    -- หากมีการแก้ไขการจองในห้องที่มีสถานะจองแล้ว
+    IF TG_OP = 'UPDATE' AND 
+       (OLD.Room_ID IS DISTINCT FROM NEW.Room_ID OR
+        OLD.Start_Time IS DISTINCT FROM NEW.Start_Time OR
+        OLD.End_Time IS DISTINCT FROM NEW.End_Time) THEN
+
+        -- อัปเดตสถานะห้องที่เคยจองให้เป็น "ว่าง"
+        UPDATE "ROOM"
+        SET Status = 'Available'
+        WHERE Room_ID = OLD.Room_ID;
+
+        -- อัปเดตสถานะห้องใหม่ให้เป็น "จองแล้ว"
+        UPDATE "ROOM"
+        SET Status = 'Booked'
+        WHERE Room_ID = NEW.Room_ID;
+
+    -- หากการจองถูกลบ
+    ELSIF TG_OP = 'DELETE' THEN
+        -- อัปเดตสถานะห้องให้เป็น "ว่าง"
+        UPDATE "ROOM"
+        SET Status = 'Available'
+        WHERE Room_ID = OLD.Room_ID;
+    END IF;
+
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-CREATE TRIGGER reservation_creation_trigger
-AFTER INSERT ON "RESERVATION"
+-- Trigger สำหรับการแก้ไขและลบการจอง
+CREATE TRIGGER trg_update_room_status_on_change
+AFTER UPDATE OR DELETE ON "RESERVATION"
 FOR EACH ROW
-EXECUTE FUNCTION log_reservation_creation();
-
--- Trigger เมื่อการจองห้องถูกแก้ไข
-CREATE OR REPLACE FUNCTION log_reservation_update()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO "LOG" (Log_Type, User_ID, Action_ID, Table_Name, Old_Value, New_Value, Timestamp)
-    VALUES ('reservation_updated', NEW.User_ID, NEW.Reservation_ID, 'RESERVATION', OLD.Start_Time || ' - ' || OLD.End_Time, NEW.Start_Time || ' - ' || NEW.End_Time, CURRENT_TIMESTAMP);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER reservation_update_trigger
-AFTER UPDATE ON "RESERVATION"
-FOR EACH ROW
-EXECUTE FUNCTION log_reservation_update();
-
--- Trigger เมื่อการจองห้องถูกลบ
-CREATE OR REPLACE FUNCTION log_reservation_deletion()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO "LOG" (Log_Type, User_ID, Action_ID, Table_Name, Timestamp)
-    VALUES ('reservation_deleted', OLD.User_ID, OLD.Reservation_ID, 'RESERVATION', CURRENT_TIMESTAMP);
-    RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER reservation_deletion_trigger
-AFTER DELETE ON "RESERVATION"
-FOR EACH ROW
-EXECUTE FUNCTION log_reservation_deletion();
-
---Admin
-
--- Trigger เมื่อมีการแก้ไขข้อมูลในตารางโดย Admin
-CREATE OR REPLACE FUNCTION log_admin_changes()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO "LOG" (Log_Type, User_ID, Action_ID, Table_Name, Old_Value, New_Value, Timestamp)
-    VALUES ('admin_update', NEW.User_ID, NEW.User_ID, TG_TABLE_NAME, OLD.Name, NEW.Name, CURRENT_TIMESTAMP);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER admin_update_trigger
-AFTER UPDATE ON "REG_USER"
-FOR EACH ROW
-WHEN (NEW.Role_ID = 1)  -- เช็คว่าเป็น Admin
-EXECUTE FUNCTION log_admin_changes();
-
--- Trigger เมื่อมีการลบข้อมูลโดย Admin
-CREATE OR REPLACE FUNCTION log_admin_deletion()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO "LOG" (Log_Type, User_ID, Action_ID, Table_Name, Timestamp)
-    VALUES ('admin_delete', NEW.User_ID, OLD.User_ID, TG_TABLE_NAME, CURRENT_TIMESTAMP);
-    RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER admin_delete_trigger
-AFTER DELETE ON "REG_USER"
-FOR EACH ROW
-WHEN (OLD.Role_ID = 1)  -- เช็คว่าเป็น Admin
-EXECUTE FUNCTION log_admin_deletion();
-
--- Trigger สำหรับการเกิดข้อผิดพลาดในระบบ
-CREATE OR REPLACE FUNCTION log_error_event()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO "LOG" (Log_Type, User_ID, Action_ID, Table_Name, Timestamp)
-    VALUES ('error_event', NEW.User_ID, NEW.Reservation_ID, 'RESERVATION', CURRENT_TIMESTAMP);
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER error_event_trigger
-AFTER INSERT ON "LOG"
-FOR EACH ROW
-WHEN (NEW.Log_Type = 'error_event')
-EXECUTE FUNCTION log_error_event();
-
-
+EXECUTE FUNCTION update_room_status_on_reservation_change();
