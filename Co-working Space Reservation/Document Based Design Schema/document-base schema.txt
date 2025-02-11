@@ -15,10 +15,6 @@
   }
 }
 
-
-
-
-
 {
   "title": "room",
   "required": ["room_id", "price", "capacity", "status", "room_facilities"],
