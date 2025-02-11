@@ -1,0 +1,71 @@
+{
+  "title": "Reguser",
+  "required": ["user_id", "user_name", "user_email", "user_password", "user_phonenumber", "user_role_id", "user_role_name"],
+  "properties": {
+    "user_id": { "bsonType": "string" },
+    "user_name": { "bsonType": "string" },
+    "user_email": { "bsonType": "string" },
+    "user_password": { "bsonType": "string" },
+    "user_phonenumber": { 
+      "bsonType": "string",
+      "pattern": "/^\\+[1-9]\\d{1,14}$/"  // International format
+    },
+    "user_role_id": { "bsonType": "int" },
+    "user_role_name": { "bsonType": "string" }
+  }
+}
+
+
+{
+  "title": "room",
+  "required": ["room_id", "price", "capacity", "status", "room_facilities"],
+  "properties": {
+    "room_id": { "bsonType": "string" },
+    "price": { "bsonType": "double" },
+    "capacity": { "bsonType": "int" },
+    "status": { "enum": ["Available", "Booked", "Maintenance"] },
+    "room_facilities": {
+      "bsonType": "array",
+      "items": { "bsonType": "string" }
+    }
+  }
+}
+
+
+{
+  "title": "CoWorkingSpace",
+  "required": ["CoWorking_id", "address", "phonenumber", "email", "rating", "opentime", "closetime", "coworking_facilities", "room"],
+  "properties": {
+    "CoWorking_id": { "bsonType": "string" },
+    "address": { "bsonType": "string" },
+    "phonenumber": { 
+      "bsonType": "string",
+      "pattern": "/^\\+[1-9]\\d{1,14}$/"  // International format
+    },
+    "email": { "bsonType": "string" },
+    "rating": { "bsonType": "double", "minimum": 0, "maximum": 5 },
+    "opentime": { "bsonType": "string" },
+    "closetime": { "bsonType": "string" },
+    "coworking_facilities": {
+      "bsonType": "array",
+      "items": { "bsonType": "string" }
+    },
+    "room": {
+      "bsonType": "array",
+      "items": { "bsonType": "objectId" }  // Reference to room
+    }
+  }
+}
+
+{
+  "title": "Reservation",
+  "required": ["Reservation_id", "user_id", "room_id", "start_time", "end_time", "Time_stamp"],
+  "properties": {
+    "Reservation_id": { "bsonType": "string" },
+    "user_id": { "bsonType": "objectId" },  // Reference to Reguser
+    "room_id": { "bsonType": "objectId" },  // Reference to room
+    "start_time": { "bsonType": "date" },
+    "end_time": { "bsonType": "date" },
+    "Time_stamp": { "bsonType": "timestamp" }
+  }
+}
